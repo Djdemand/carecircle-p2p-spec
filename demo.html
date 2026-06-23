@@ -74,7 +74,8 @@ textarea { resize:vertical; min-height:80px; font-family:monospace; font-size:11
     <div id="host-qr">
       <div class="qr-container">
         <div id="qrcode"></div>
-        <div class="hint">Scan this from another device or tab to join the circle</div>
+        <div class="hint">Scan this from another device to join the circle</div>
+        <a id="qrUrl" href="#" target="_blank" style="display:none;font-size:10px;color:var(--accent);word-break:break-all;margin-top:8px;display:block"></a>
       </div>
       <button class="btn btn-ghost" onclick="copyOffer()" style="width:100%;margin-top:8px">📋 Copy WebRTC Offer</button>
       <textarea id="offerOut" readonly placeholder="Offer will appear here..." style="margin-top:8px;font-size:10px"></textarea>
@@ -307,8 +308,13 @@ async function startHost() {
   const offerStr = JSON.stringify(offerData);
   document.getElementById('offerOut').value = offerStr;
   
-  // Generate QR code
-  generateQR(offerStr);
+  // Generate QR code as a URL the guest can open
+  const pageUrl = window.location.href.split('#')[0].split('?')[0];
+  const encoded = btoa(offerStr);
+  const joinUrl = pageUrl + '#join=' + encoded;
+  generateQR(joinUrl);
+  document.getElementById('qrUrl').textContent = joinUrl;
+  document.getElementById('qrUrl').href = joinUrl;
   
   // Listen for answer via paste
   window._pendingPC = pc;
@@ -377,67 +383,83 @@ function copyOffer() {
   }
 }
 
-// ─── QR CODE ──────────────────────────────────────────
+// ─── QR CODE (inline, no CDN) ─────────────────────────
 function generateQR(data) {
   const container = document.getElementById('qrcode');
-  container.innerHTML = '<div style="padding:20px;color:var(--muted)">Generating QR code...</div>';
-  
-  // Try CDN first, fall back to inline encoding
-  const script = document.createElement('script');
-  script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js';
-  script.onload = () => {
-    container.innerHTML = '';
-    QRCode.toCanvas(data, { width: 220, margin: 2, color: { dark:'#f8fafc', light:'#1e293b' } }, (err, canvas) => {
-      if (err) { drawQRFallback(data, container); return; }
-      container.appendChild(canvas);
-    });
-  };
-  script.onerror = () => { drawQRFallback(data, container); };
-  document.head.appendChild(script);
-}
-
-// Pure-JS QR code fallback — no CDN needed
-function drawQRFallback(data, container) {
-  // Simple QR-like pattern from the data hash
-  const size = 200; const cells = 25; const cs = size / cells;
-  const canvas = document.createElement('canvas');
-  canvas.width = size; canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, size, size);
-  
-  // Generate a deterministic pattern from the data
-  let hash = 0; for (let i = 0; i < data.length; i++) { hash = ((hash << 5) - hash) + data.charCodeAt(i); hash |= 0; }
-  
-  ctx.fillStyle = '#f8fafc';
-  // Finder patterns (top-left, top-right, bottom-left)
-  drawFinder(ctx, 2, 2, cs);
-  drawFinder(ctx, size - 7*cs, 2, cs);
-  drawFinder(ctx, 2, size - 7*cs, cs);
-  
-  // Data modules seeded by hash
-  let h = Math.abs(hash);
-  for (let r = 0; r < cells; r++) {
-    for (let c = 0; c < cells; c++) {
-      if (r < 8 && c < 8) continue; // skip top-left finder
-      if (r < 8 && c > cells - 9) continue; // skip top-right
-      if (r > cells - 9 && c < 8) continue; // skip bottom-left
-      h = (h * 1103515245 + 12345) & 0x7fffffff;
-      if (h % 3 === 0) ctx.fillRect(c * cs, r * cs, cs, cs);
-    }
-  }
-  
   container.innerHTML = '';
-  container.appendChild(canvas);
-  log('QR generated (offline mode — visual pattern from data hash)', 'action');
+  try {
+    const qr = makeQRCode(data);
+    const canvas = document.createElement('canvas');
+    const size = 220; const cells = qr.length; const cs = Math.floor(size / cells);
+    canvas.width = cs * cells; canvas.height = cs * cells;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#f8fafc';
+    for (let r = 0; r < cells; r++)
+      for (let c = 0; c < cells; c++)
+        if (qr[r][c]) ctx.fillRect(c * cs, r * cs, cs, cs);
+    container.appendChild(canvas);
+  } catch(e) {
+    container.innerHTML = '<div style="padding:20px;color:var(--red)">QR: ' + e.message + '</div>';
+  }
 }
 
-function drawFinder(ctx, x, y, cs) {
-  ctx.fillRect(x, y, 7*cs, 7*cs);
-  ctx.fillStyle = '#1e293b';
-  ctx.fillRect(x+cs, y+cs, 5*cs, 5*cs);
-  ctx.fillStyle = '#f8fafc';
-  ctx.fillRect(x+2*cs, y+2*cs, 3*cs, 3*cs);
+// ─── QR CODE GENERATOR (pure JS) ──────────────────────
+function makeQRCode(data) { const qr = _createQR(data, 0, 'L'); return qr.modules; }
+function _createQR(data, typeNumber, errorCorrection) {
+  const segments = [{ mode: 'byte', data: _toUtf8Array(data) }];
+  let version = typeNumber || 1, buf;
+  while (version <= 40) { try { buf = _encodeSegments(segments, version, errorCorrection); break; } catch(e) { version++; } }
+  if (version > 40) throw new Error('Data too long');
+  const size = version * 4 + 17;
+  const modules = Array(size).fill(null).map(() => Array(size).fill(null));
+  _placeFinder(modules, 0, 0); _placeFinder(modules, size - 7, 0); _placeFinder(modules, 0, size - 7);
+  for (let i = 8; i < size - 8; i++) modules[i][6] = modules[6][i] = (i % 2 === 0);
+  const aligns = _getAlignmentPositions(version);
+  for (const ar of aligns) for (const ac of aligns) {
+    if (modules[ar][ac] !== null) continue;
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++)
+      modules[ar+dr][ac+dc] = (Math.abs(dr)===2||Math.abs(dc)===2||(dr===0&&dc===0));
+  }
+  for (let i = 0; i < 9; i++) { modules[i][8] = modules[8][i] = null; }
+  for (let i = 0; i < 8; i++) modules[size-i-1][8] = null;
+  modules[8][size-8] = null;
+  let bitIndex = 0, up = true;
+  for (let col = size-1; col > 0; col -= 2) {
+    if (col === 6) col = 5;
+    for (let row = 0; row < size; row++) {
+      const r = up ? size-1-row : row;
+      for (let c = 0; c < 2; c++) {
+        const cc = col - c; if (modules[r][cc] !== null) continue;
+        let bit = false;
+        if (bitIndex < buf.length*8) { bit = (buf[Math.floor(bitIndex/8)]>>(7-(bitIndex%8)))&1; bitIndex++; }
+        modules[r][cc] = bit;
+      }
+    }
+    up = !up;
+  }
+  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) modules[r][c] = modules[r][c] ^ ((r+c)%2===0?1:0);
+  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (modules[r][c]===null) modules[r][c]=false;
+  return { modules, version };
 }
+function _toUtf8Array(s) { const a=[]; for(let i=0;i<s.length;i++){let c=s.charCodeAt(i); if(c<0x80)a.push(c);else if(c<0x800)a.push(0xc0|(c>>6),0x80|(c&0x3f));else a.push(0xe0|(c>>12),0x80|((c>>6)&0x3f),0x80|(c&0x3f));} return a; }
+function _encodeSegments(segments, version, ecl) {
+  const ecInfo = _getECInfo(version, ecl); const buf = [];
+  buf.push(0x40); const countBits = version<10?8:16;
+  const totalDataLen = segments.reduce((s,seg)=>s+seg.data.length,0);
+  for(let i=countBits-1;i>=0;i--) buf.push((totalDataLen>>i)&1);
+  for(const seg of segments) for(const byte of seg.data) for(let i=7;i>=0;i--) buf.push((byte>>i)&1);
+  const termLen = Math.min(4, ecInfo.totalDataBits-buf.length);
+  for(let i=0;i<termLen;i++) buf.push(0);
+  while(buf.length%8!==0) buf.push(0);
+  const padBytes=[0xec,0x11]; let pi=0;
+  while(buf.length<ecInfo.totalDataBits){for(let i=7;i>=0;i--)buf.push((padBytes[pi]>>i)&1); pi=(pi+1)%2;}
+  const dataBytes=[]; for(let i=0;i<buf.length;i+=8){let b=0;for(let j=0;j<8;j++)b=(b<<1)|(buf[i+j]||0);dataBytes.push(b);}
+  return dataBytes;
+}
+function _getECInfo(version,ecl){const t={1:{L:{cw:19,totalDataBits:152}},2:{L:{cw:34,totalDataBits:272}},3:{L:{cw:55,totalDataBits:440}},4:{L:{cw:80,totalDataBits:640}},5:{L:{cw:108,totalDataBits:864}},6:{L:{cw:136,totalDataBits:1088}},7:{L:{cw:156,totalDataBits:1248}},8:{L:{cw:194,totalDataBits:1552}},9:{L:{cw:232,totalDataBits:1856}},10:{L:{cw:274,totalDataBits:2192}}};for(let v=version;v>=1;v--)if(t[v]&&t[v][ecl])return t[v][ecl];const cw=16*version+128;return{cw,totalDataBits:cw*8};}
+function _placeFinder(m,row,col){for(let r=-1;r<=7;r++)for(let c=-1;c<=7;c++){const rr=row+r,cc=col+c;if(rr<0||rr>=m.length||cc<0||cc>=m.length)continue;m[rr][cc]=(r>=0&&r<=6&&c>=0&&c<=6)?((r===0||r===6||c===0||c===6)||(r>=2&&r<=4&&c>=2&&c<=4)):false;}}
+function _getAlignmentPositions(v){if(v===1)return[];const n=Math.floor(v/7)+2,p=[6],step=(v*4+4)/(n-1);for(let i=1;i<n;i++)p.push(Math.round(v*4+4-step*(n-1-i)));return p;}
 
 // ─── TAB SWITCHING ────────────────────────────────────
 document.getElementById('hostTabs').addEventListener('click', (e) => {
@@ -452,7 +474,24 @@ document.getElementById('hostTabs').addEventListener('click', (e) => {
 // ─── INIT ─────────────────────────────────────────────
 log('CareCircle P2P Demo started', 'action');
 log(`Your Peer ID: ${PEER_ID}`, 'action');
-startHost();
+
+// Auto-join: if URL has #join=<base64 offer>, connect as guest
+const hash = window.location.hash;
+if (hash.startsWith('#join=')) {
+  try {
+    const offerStr = atob(hash.substring(6));
+    const offerData = JSON.parse(offerStr);
+    log('Scanned QR — auto-joining circle...', 'action');
+    document.querySelector('#hostPanel h3').textContent = '👤 GUEST — Connected';
+    connectAsGuest(offerData);
+  } catch(e) {
+    log('Invalid QR link: ' + e.message, 'error');
+    startHost();
+  }
+} else {
+  startHost();
+}
+
 renderMeds();
 renderPeers();
 
