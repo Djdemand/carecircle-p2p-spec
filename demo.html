@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CareCircle P2P — Live Demo</title>
+<script src="qrcode.min.js"></script>
 <style>
 :root {
   --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #f8fafc;
@@ -383,83 +384,16 @@ function copyOffer() {
   }
 }
 
-// ─── QR CODE (inline, no CDN) ─────────────────────────
+// ─── QR CODE (qrcodejs library) ──────────────────────
 function generateQR(data) {
   const container = document.getElementById('qrcode');
   container.innerHTML = '';
   try {
-    const qr = makeQRCode(data);
-    const canvas = document.createElement('canvas');
-    const size = 220; const cells = qr.length; const cs = Math.floor(size / cells);
-    canvas.width = cs * cells; canvas.height = cs * cells;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#f8fafc';
-    for (let r = 0; r < cells; r++)
-      for (let c = 0; c < cells; c++)
-        if (qr[r][c]) ctx.fillRect(c * cs, r * cs, cs, cs);
-    container.appendChild(canvas);
+    new QRCode(container, { text: data, width: 220, height: 220, colorDark: '#f8fafc', colorLight: '#1e293b', correctLevel: QRCode.CorrectLevel.L });
   } catch(e) {
     container.innerHTML = '<div style="padding:20px;color:var(--red)">QR: ' + e.message + '</div>';
   }
 }
-
-// ─── QR CODE GENERATOR (pure JS) ──────────────────────
-function makeQRCode(data) { const qr = _createQR(data, 0, 'L'); return qr.modules; }
-function _createQR(data, typeNumber, errorCorrection) {
-  const segments = [{ mode: 'byte', data: _toUtf8Array(data) }];
-  let version = typeNumber || 1, buf;
-  while (version <= 40) { try { buf = _encodeSegments(segments, version, errorCorrection); break; } catch(e) { version++; } }
-  if (version > 40) throw new Error('Data too long');
-  const size = version * 4 + 17;
-  const modules = Array(size).fill(null).map(() => Array(size).fill(null));
-  _placeFinder(modules, 0, 0); _placeFinder(modules, size - 7, 0); _placeFinder(modules, 0, size - 7);
-  for (let i = 8; i < size - 8; i++) modules[i][6] = modules[6][i] = (i % 2 === 0);
-  const aligns = _getAlignmentPositions(version);
-  for (const ar of aligns) for (const ac of aligns) {
-    if (modules[ar][ac] !== null) continue;
-    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++)
-      modules[ar+dr][ac+dc] = (Math.abs(dr)===2||Math.abs(dc)===2||(dr===0&&dc===0));
-  }
-  for (let i = 0; i < 9; i++) { modules[i][8] = modules[8][i] = null; }
-  for (let i = 0; i < 8; i++) modules[size-i-1][8] = null;
-  modules[8][size-8] = null;
-  let bitIndex = 0, up = true;
-  for (let col = size-1; col > 0; col -= 2) {
-    if (col === 6) col = 5;
-    for (let row = 0; row < size; row++) {
-      const r = up ? size-1-row : row;
-      for (let c = 0; c < 2; c++) {
-        const cc = col - c; if (modules[r][cc] !== null) continue;
-        let bit = false;
-        if (bitIndex < buf.length*8) { bit = (buf[Math.floor(bitIndex/8)]>>(7-(bitIndex%8)))&1; bitIndex++; }
-        modules[r][cc] = bit;
-      }
-    }
-    up = !up;
-  }
-  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) modules[r][c] = modules[r][c] ^ ((r+c)%2===0?1:0);
-  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (modules[r][c]===null) modules[r][c]=false;
-  return { modules, version };
-}
-function _toUtf8Array(s) { const a=[]; for(let i=0;i<s.length;i++){let c=s.charCodeAt(i); if(c<0x80)a.push(c);else if(c<0x800)a.push(0xc0|(c>>6),0x80|(c&0x3f));else a.push(0xe0|(c>>12),0x80|((c>>6)&0x3f),0x80|(c&0x3f));} return a; }
-function _encodeSegments(segments, version, ecl) {
-  const ecInfo = _getECInfo(version, ecl); const buf = [];
-  buf.push(0x40); const countBits = version<10?8:16;
-  const totalDataLen = segments.reduce((s,seg)=>s+seg.data.length,0);
-  for(let i=countBits-1;i>=0;i--) buf.push((totalDataLen>>i)&1);
-  for(const seg of segments) for(const byte of seg.data) for(let i=7;i>=0;i--) buf.push((byte>>i)&1);
-  const termLen = Math.min(4, ecInfo.totalDataBits-buf.length);
-  for(let i=0;i<termLen;i++) buf.push(0);
-  while(buf.length%8!==0) buf.push(0);
-  const padBytes=[0xec,0x11]; let pi=0;
-  while(buf.length<ecInfo.totalDataBits){for(let i=7;i>=0;i--)buf.push((padBytes[pi]>>i)&1); pi=(pi+1)%2;}
-  const dataBytes=[]; for(let i=0;i<buf.length;i+=8){let b=0;for(let j=0;j<8;j++)b=(b<<1)|(buf[i+j]||0);dataBytes.push(b);}
-  return dataBytes;
-}
-function _getECInfo(version,ecl){const t={1:{L:{cw:19,totalDataBits:152}},2:{L:{cw:34,totalDataBits:272}},3:{L:{cw:55,totalDataBits:440}},4:{L:{cw:80,totalDataBits:640}},5:{L:{cw:108,totalDataBits:864}},6:{L:{cw:136,totalDataBits:1088}},7:{L:{cw:156,totalDataBits:1248}},8:{L:{cw:194,totalDataBits:1552}},9:{L:{cw:232,totalDataBits:1856}},10:{L:{cw:274,totalDataBits:2192}}};for(let v=version;v>=1;v--)if(t[v]&&t[v][ecl])return t[v][ecl];const cw=16*version+128;return{cw,totalDataBits:cw*8};}
-function _placeFinder(m,row,col){for(let r=-1;r<=7;r++)for(let c=-1;c<=7;c++){const rr=row+r,cc=col+c;if(rr<0||rr>=m.length||cc<0||cc>=m.length)continue;m[rr][cc]=(r>=0&&r<=6&&c>=0&&c<=6)?((r===0||r===6||c===0||c===6)||(r>=2&&r<=4&&c>=2&&c<=4)):false;}}
-function _getAlignmentPositions(v){if(v===1)return[];const n=Math.floor(v/7)+2,p=[6],step=(v*4+4)/(n-1);for(let i=1;i<n;i++)p.push(Math.round(v*4+4-step*(n-1-i)));return p;}
 
 // ─── TAB SWITCHING ────────────────────────────────────
 document.getElementById('hostTabs').addEventListener('click', (e) => {
