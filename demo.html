@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CareCircle P2P — Live Demo</title>
+<style>
+:root {
+  --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #f8fafc;
+  --muted: #94a3b8; --accent: #3b82f6; --green: #22c55e; --red: #ef4444;
+  --amber: #f59e0b; --glass: #0ea5e9;
+}
+* { box-sizing:border-box; margin:0; padding:0 }
+body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh }
+.header { background:var(--card); border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; gap:12px }
+.header h1 { font-size:18px; font-weight:600 }
+.header .dot { width:8px; height:8px; border-radius:50%; background:var(--red) }
+.header .dot.online { background:var(--green); animation:pulse 2s infinite }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+.main { display:flex; gap:16px; padding:16px; max-width:1400px; margin:0 auto; height:calc(100vh - 56px) }
+.panel { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; flex:1; overflow-y:auto }
+.panel h3 { font-size:14px; font-weight:600; margin-bottom:12px; color:var(--muted); text-transform:uppercase; letter-spacing:1px }
+.qr-container { text-align:center; padding:20px }
+.qr-container canvas { border:3px solid var(--border); border-radius:8px }
+.tabs { display:flex; gap:0; margin-bottom:12px }
+.tab { padding:8px 16px; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; font-size:13px; border-radius:0 }
+.tab:first-child { border-radius:6px 0 0 6px }
+.tab:last-child { border-radius:0 6px 6px 0 }
+.tab.active { background:var(--accent); color:#fff; border-color:var(--accent) }
+.med-card { background:#0f172a; border:1px solid var(--border); border-radius:6px; padding:12px; margin-bottom:8px }
+.med-card .name { font-weight:600; font-size:14px }
+.med-card .detail { font-size:12px; color:var(--muted); margin-top:4px }
+.med-card .actions { display:flex; gap:8px; margin-top:8px }
+.btn { padding:6px 14px; border:none; border-radius:4px; font-size:12px; font-weight:600; cursor:pointer; transition:opacity .2s }
+.btn:hover { opacity:0.85 }
+.btn-accent { background:var(--accent); color:#fff }
+.btn-green { background:var(--green); color:#fff }
+.btn-red { background:var(--red); color:#fff }
+.btn-ghost { background:transparent; border:1px solid var(--border); color:var(--text) }
+.log-entry { font-size:11px; font-family:monospace; color:var(--muted); padding:3px 0; border-bottom:1px solid rgba(51,65,85,0.3) }
+.log-entry .ts { color:var(--amber) }
+.log-entry .peer { color:var(--green) }
+.log-entry .action { color:var(--accent) }
+.peer-row { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:12px }
+.peer-row .dot { width:6px; height:6px; border-radius:50%; background:var(--green) }
+.peer-row .dot.offline { background:var(--red) }
+input, textarea { width:100%; background:#0f172a; border:1px solid var(--border); color:var(--text); padding:8px 12px; border-radius:4px; font-size:13px; margin-bottom:8px }
+textarea { resize:vertical; min-height:80px; font-family:monospace; font-size:11px }
+.status-bar { font-size:11px; color:var(--muted); text-align:center; padding:8px; border-top:1px solid var(--border); margin-top:8px }
+.paste-area { text-align:center; padding:30px; border:2px dashed var(--border); border-radius:8px; color:var(--muted); font-size:13px }
+.badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:600; text-transform:uppercase }
+.badge-taken { background:rgba(34,197,94,0.2); color:var(--green) }
+.badge-due { background:rgba(245,158,11,0.2); color:var(--amber) }
+.badge-overdue { background:rgba(239,68,68,0.2); color:var(--red) }
+.hint { font-size:11px; color:var(--muted); margin-top:8px; font-style:italic }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="dot" id="statusDot"></div>
+  <h1>CareCircle P2P Demo</h1>
+  <span style="font-size:12px;color:var(--muted);margin-left:auto" id="peerLabel">No peers</span>
+</div>
+
+<div class="main">
+  <!-- LEFT: HOST -->
+  <div class="panel" id="hostPanel">
+    <h3>👤 HOST — You</h3>
+    <div class="tabs" id="hostTabs">
+      <button class="tab active" data-tab="host-qr">QR Code</button>
+      <button class="tab" data-tab="host-peer">Paste Offer</button>
+    </div>
+    <div id="host-qr">
+      <div class="qr-container">
+        <div id="qrcode"></div>
+        <div class="hint">Scan this from another device or tab to join the circle</div>
+      </div>
+      <button class="btn btn-ghost" onclick="copyOffer()" style="width:100%;margin-top:8px">📋 Copy WebRTC Offer</button>
+      <textarea id="offerOut" readonly placeholder="Offer will appear here..." style="margin-top:8px;font-size:10px"></textarea>
+    </div>
+    <div id="host-peer" style="display:none">
+      <div class="paste-area">
+        <p>Paste a WebRTC offer from another peer below</p>
+        <textarea id="pasteOffer" placeholder="Paste offer JSON here..."></textarea>
+        <button class="btn btn-accent" onclick="connectFromPaste()" style="width:100%">Connect to Peer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: MEDICATIONS -->
+  <div class="panel" style="flex:1.5">
+    <h3>💊 Medications (synced across peers)</h3>
+    <div id="medsList"></div>
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border)">
+      <input id="medName" placeholder="Medication name" style="width:48%;display:inline-block;margin-right:4%">
+      <input id="medDose" placeholder="Dosage (e.g. 10mg)" style="width:48%;display:inline-block">
+      <input id="medFreq" placeholder="Frequency (hours)" type="number" value="4" min="1" max="24" style="width:48%;display:inline-block;margin-right:4%">
+      <input id="medDuration" placeholder="Duration (days)" type="number" value="14" min="1" max="90" style="width:48%;display:inline-block">
+      <button class="btn btn-accent" onclick="addMedication()" style="width:100%;margin-top:8px">+ Add Medication</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: LOGS & PEERS -->
+  <div class="panel">
+    <h3>📡 Activity Log</h3>
+    <div id="logContainer" style="max-height:calc(100% - 120px);overflow-y:auto"></div>
+    <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+      <h3 style="margin-bottom:4px">🟢 Peers</h3>
+      <div id="peerList"></div>
+    </div>
+    <div class="status-bar" id="statusText">Initializing WebRTC...</div>
+  </div>
+</div>
+
+<script>
+// ─── STATE ────────────────────────────────────────────
+const PEER_ID = 'peer_' + Math.random().toString(36).substr(2,8);
+const MEDS_KEY = 'cc_p2p_meds';
+let peers = {}; // { peerId: { pc: RTCPeerConnection, dc: RTCDataChannel, displayName } }
+let medications = JSON.parse(localStorage.getItem(MEDS_KEY) || '[]');
+let isHost = true; // toggles behavior
+
+// STUN servers (free Google STUN)
+const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+// ─── UI HELPERS ───────────────────────────────────────
+function log(msg, type='info') {
+  const c = document.getElementById('logContainer');
+  const now = new Date().toLocaleTimeString();
+  c.innerHTML += `<div class="log-entry"><span class="ts">${now}</span> <span class="${type==='error'?'':type}">${msg}</span></div>`;
+  c.scrollTop = c.scrollHeight;
+}
+
+function renderMeds() {
+  localStorage.setItem(MEDS_KEY, JSON.stringify(medications));
+  const el = document.getElementById('medsList');
+  if (medications.length === 0) {
+    el.innerHTML = '<div class="hint" style="text-align:center;padding:20px">No medications added yet</div>';
+    return;
+  }
+  el.innerHTML = medications.map((m,i) => `
+    <div class="med-card">
+      <div class="name">${m.name} <span class="badge badge-due">Every ${m.freq}h</span></div>
+      <div class="detail">${m.dose} • ${m.duration} day course</div>
+      <div class="detail">Added by: ${m.addedBy || 'unknown'}</div>
+      <div class="actions">
+        <button class="btn btn-green" onclick="logDose('${m.id}')">✓ Log Dose</button>
+        <button class="btn btn-red" onclick="deleteMed('${m.id}')">✕ Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderPeers() {
+  const el = document.getElementById('peerList');
+  const entries = Object.entries(peers);
+  document.getElementById('peerLabel').textContent = entries.length > 0 ? `${entries.length} peer(s)` : 'No peers';
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot' + (entries.length > 0 ? ' online' : '');
+  
+  if (entries.length === 0) {
+    el.innerHTML = '<div class="hint">No peers connected</div>';
+  } else {
+    el.innerHTML = entries.map(([id,p]) => `
+      <div class="peer-row">
+        <div class="dot${p.dc?.readyState==='open'?'':' offline'}"></div>
+        <span>${p.displayName || id}</span>
+      </div>
+    `).join('');
+  }
+}
+
+// ─── MEDICATION MANAGEMENT ────────────────────────────
+function addMedication() {
+  const name = document.getElementById('medName').value.trim();
+  const dose = document.getElementById('medDose').value.trim();
+  const freq = parseInt(document.getElementById('medFreq').value) || 4;
+  const duration = parseInt(document.getElementById('medDuration').value) || 14;
+  if (!name || !dose) return;
+  
+  const med = { id: crypto.randomUUID(), name, dose, freq, duration, addedBy: PEER_ID, ts: Date.now() };
+  medications.push(med);
+  renderMeds();
+  document.getElementById('medName').value = '';
+  document.getElementById('medDose').value = '';
+  log(`Added: ${name} ${dose} (every ${freq}h)`, 'action');
+  broadcast({ type: 'med_add', med });
+}
+
+function logDose(medId) {
+  const med = medications.find(m => m.id === medId);
+  if (!med) return;
+  log(`✓ Dose logged: ${med.name} ${med.dose}`, 'action');
+  broadcast({ type: 'dose_log', medId, takenBy: PEER_ID, ts: Date.now() });
+}
+
+function deleteMed(medId) {
+  medications = medications.filter(m => m.id !== medId);
+  renderMeds();
+  log('Medication deleted', 'action');
+  broadcast({ type: 'med_delete', medId });
+}
+
+// ─── BROADCAST ────────────────────────────────────────
+function broadcast(msg) {
+  msg.sender = PEER_ID;
+  msg.timestamp = Date.now();
+  const payload = JSON.stringify(msg);
+  Object.values(peers).forEach(p => {
+    if (p.dc && p.dc.readyState === 'open') p.dc.send(payload);
+  });
+}
+
+function handleIncoming(peerId, raw) {
+  try {
+    const msg = JSON.parse(raw);
+    if (msg.sender === PEER_ID) return; // ignore own messages
+    
+    log(`← ${msg.type}: ${msg.med?.name || ''}`, 'peer');
+    
+    switch (msg.type) {
+      case 'med_add':
+        if (!medications.find(m => m.id === msg.med.id)) {
+          medications.push(msg.med);
+          renderMeds();
+        }
+        break;
+      case 'med_delete':
+        medications = medications.filter(m => m.id !== msg.medId);
+        renderMeds();
+        break;
+      case 'dose_log':
+        log(`  ${msg.takenBy || 'peer'} administered medication`, 'peer');
+        break;
+    }
+  } catch(e) { log('Invalid message received', 'error'); }
+}
+
+// ─── WEBRTC ───────────────────────────────────────────
+async function createPeerConnection(peerId) {
+  const pc = new RTCPeerConnection(rtcConfig);
+  const dc = pc.createDataChannel('carecircle', { ordered: true });
+  
+  dc.onopen = () => {
+    log(`Connected to ${peerId}`, 'peer');
+    peers[peerId].dc = dc;
+    renderPeers();
+    // Send current medication state to new peer
+    medications.forEach(m => {
+      dc.send(JSON.stringify({ type: 'med_add', med: m, sender: PEER_ID, timestamp: Date.now() }));
+    });
+  };
+  dc.onmessage = (e) => handleIncoming(peerId, e.data);
+  dc.onclose = () => log(`Channel closed: ${peerId}`);
+  
+  // Handle incoming data channel (if guest)
+  pc.ondatachannel = (e) => {
+    const ch = e.channel;
+    ch.onopen = () => {
+      log(`Data channel opened from ${peerId}`, 'peer');
+      peers[peerId].dc = ch;
+      renderPeers();
+    };
+    ch.onmessage = (ev) => handleIncoming(peerId, ev.data);
+  };
+  
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+      log(`Peer ${peerId} disconnected`, 'error');
+      delete peers[peerId];
+      renderPeers();
+    }
+  };
+  
+  peers[peerId] = { pc, dc, displayName: peerId };
+  renderPeers();
+  return { pc, dc };
+}
+
+async function startHost() {
+  isHost = true;
+  log('Starting as Host — generating WebRTC offer...', 'action');
+  
+  const peerId = 'guest_' + Math.random().toString(36).substr(2,4);
+  const { pc } = await createPeerConnection(peerId);
+  
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  
+  // Wait for ICE candidates
+  await new Promise(resolve => {
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) resolve(); // gathering complete
+    };
+    setTimeout(resolve, 2000); // fallback
+  });
+  
+  // Export the full offer
+  const offerData = {
+    type: 'carecircle-offer',
+    offer: pc.localDescription,
+    hostId: PEER_ID,
+    ts: Date.now()
+  };
+  
+  const offerStr = JSON.stringify(offerData);
+  document.getElementById('offerOut').value = offerStr;
+  
+  // Generate QR code
+  generateQR(offerStr);
+  
+  // Listen for answer via paste
+  window._pendingPC = pc;
+  window._pendingPeerId = peerId;
+  
+  log('QR code generated — share with another device/tab', 'action');
+  document.getElementById('statusText').textContent = 'Waiting for peer to join...';
+}
+
+async function connectFromPaste() {
+  const raw = document.getElementById('pasteOffer').value.trim();
+  if (!raw) return;
+  
+  try {
+    const offerData = JSON.parse(raw);
+    if (offerData.type === 'carecircle-offer') {
+      // We are the guest connecting to host
+      await connectAsGuest(offerData);
+    } else if (offerData.type === 'carecircle-answer' && window._pendingPC) {
+      // We are the host receiving an answer
+      await window._pendingPC.setRemoteDescription(new RTCSessionDescription(offerData.answer));
+      document.getElementById('statusText').textContent = 'Peer connected! Medications synced.';
+      log('Peer joined the circle!', 'action');
+    }
+  } catch(e) {
+    log('Invalid offer data: ' + e.message, 'error');
+  }
+}
+
+async function connectAsGuest(offerData) {
+  isHost = false;
+  log('Joining as Guest...', 'action');
+  
+  const peerId = offerData.hostId;
+  const { pc } = await createPeerConnection(peerId);
+  
+  await pc.setRemoteDescription(new RTCSessionDescription(offerData.offer));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  
+  // Wait for ICE gathering
+  await new Promise(resolve => {
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) resolve();
+    };
+    setTimeout(resolve, 2000);
+  });
+  
+  const answerData = {
+    type: 'carecircle-answer',
+    answer: pc.localDescription,
+    guestId: PEER_ID,
+    ts: Date.now()
+  };
+  
+  document.getElementById('pasteOffer').value = JSON.stringify(answerData);
+  log('Send this answer back to the Host (copy & paste in their tab)', 'action');
+  document.getElementById('statusText').textContent = 'Copy the answer above → paste into Host tab';
+}
+
+function copyOffer() {
+  const offer = document.getElementById('offerOut').value;
+  if (offer) {
+    navigator.clipboard.writeText(offer);
+    log('Offer copied to clipboard', 'action');
+  }
+}
+
+// ─── QR CODE ──────────────────────────────────────────
+function generateQR(data) {
+  // Dynamically load QR code library
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js';
+  script.onload = () => {
+    const container = document.getElementById('qrcode');
+    container.innerHTML = '';
+    QRCode.toCanvas(data, { width: 220, margin: 2, color: { dark:'#f8fafc', light:'#1e293b' } }, (err, canvas) => {
+      if (err) { log('QR generation failed: ' + err, 'error'); return; }
+      container.appendChild(canvas);
+    });
+  };
+  document.head.appendChild(script);
+}
+
+// ─── TAB SWITCHING ────────────────────────────────────
+document.getElementById('hostTabs').addEventListener('click', (e) => {
+  if (!e.target.classList.contains('tab')) return;
+  document.querySelectorAll('#hostTabs .tab').forEach(t => t.classList.remove('active'));
+  e.target.classList.add('active');
+  const tab = e.target.dataset.tab;
+  document.getElementById('host-qr').style.display = tab === 'host-qr' ? 'block' : 'none';
+  document.getElementById('host-peer').style.display = tab === 'host-peer' ? 'block' : 'none';
+});
+
+// ─── INIT ─────────────────────────────────────────────
+log('CareCircle P2P Demo started', 'action');
+log(`Your Peer ID: ${PEER_ID}`, 'action');
+startHost();
+renderMeds();
+renderPeers();
+
+// Preload sample medication
+if (medications.length === 0) {
+  medications.push({
+    id: crypto.randomUUID(), name: 'Hydrocodone', dose: '10mg', freq: 4, duration: 14,
+    addedBy: 'demo', ts: Date.now()
+  });
+  renderMeds();
+}
+</script>
+</body>
+</html>
