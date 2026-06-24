@@ -78,8 +78,8 @@ textarea { resize:vertical; min-height:80px; font-family:monospace; font-size:11
         <div class="hint">Scan this from another device to join the circle</div>
         <a id="qrUrl" href="#" target="_blank" style="display:none;font-size:10px;color:var(--accent);word-break:break-all;margin-top:8px;display:block"></a>
       </div>
-      <button class="btn btn-ghost" onclick="copyOffer()" style="width:100%;margin-top:8px">📋 Copy WebRTC Offer</button>
-      <textarea id="offerOut" readonly placeholder="Offer will appear here..." style="margin-top:8px;font-size:10px"></textarea>
+      <button class="btn btn-ghost" onclick="copyOffer()" style="width:100%;margin-top:8px;font-size:10px">📋 Copy Offer (manual)</button>
+      <textarea id="offerOut" readonly placeholder="Offer will appear here..." style="display:none;font-size:10px"></textarea>
     </div>
     <div id="host-peer" style="display:none">
       <div class="paste-area">
@@ -104,14 +104,17 @@ textarea { resize:vertical; min-height:80px; font-family:monospace; font-size:11
   </div>
 
   <!-- RIGHT: LOGS & PEERS -->
-  <div class="panel">
-    <h3>📡 Activity Log</h3>
-    <div id="logContainer" style="max-height:calc(100% - 120px);overflow-y:auto"></div>
+  <div class="panel" style="flex:0.35;min-width:180px">
+    <h3 style="cursor:pointer" onclick="toggleLog()">📡 Activity <span style="font-size:10px;color:var(--muted)" id="logToggle">▼</span></h3>
+    <div id="logContainer" style="max-height:120px;overflow-y:auto;display:none"></div>
+    <div id="logPreview" style="font-size:10px;color:var(--muted);font-family:monospace;max-height:40px;overflow:hidden"></div>
     <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
-      <h3 style="margin-bottom:4px">🟢 Peers</h3>
-      <div id="peerList"></div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div class="dot" id="statusDot2" style="width:6px;height:6px;border-radius:50%;background:var(--red)"></div>
+        <span style="font-size:12px" id="peerLabel">No peers</span>
+      </div>
     </div>
-    <div class="status-bar" id="statusText">Initializing WebRTC...</div>
+    <div class="status-bar" id="statusText" style="margin-top:4px;padding-top:4px">Initializing WebRTC...</div>
   </div>
 </div>
 
@@ -129,9 +132,20 @@ const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 // ─── UI HELPERS ───────────────────────────────────────
 function log(msg, type='info') {
   const c = document.getElementById('logContainer');
+  const p = document.getElementById('logPreview');
   const now = new Date().toLocaleTimeString();
-  c.innerHTML += `<div class="log-entry"><span class="ts">${now}</span> <span class="${type==='error'?'':type}">${msg}</span></div>`;
+  const entry = `<span class="ts">${now}</span> <span class="${type==='error'?'':type}">${msg}</span>`;
+  c.innerHTML += `<div class="log-entry">${entry}</div>`;
   c.scrollTop = c.scrollHeight;
+  p.innerHTML = entry;
+}
+
+function toggleLog() {
+  const c = document.getElementById('logContainer');
+  const t = document.getElementById('logToggle');
+  const show = c.style.display === 'none';
+  c.style.display = show ? 'block' : 'none';
+  t.textContent = show ? '▲' : '▼';
 }
 
 function renderMeds() {
@@ -155,22 +169,11 @@ function renderMeds() {
 }
 
 function renderPeers() {
-  const el = document.getElementById('peerList');
   const entries = Object.entries(peers);
   document.getElementById('peerLabel').textContent = entries.length > 0 ? `${entries.length} peer(s)` : 'No peers';
-  const dot = document.getElementById('statusDot');
-  dot.className = 'dot' + (entries.length > 0 ? ' online' : '');
-  
-  if (entries.length === 0) {
-    el.innerHTML = '<div class="hint">No peers connected</div>';
-  } else {
-    el.innerHTML = entries.map(([id,p]) => `
-      <div class="peer-row">
-        <div class="dot${p.dc?.readyState==='open'?'':' offline'}"></div>
-        <span>${p.displayName || id}</span>
-      </div>
-    `).join('');
-  }
+  [document.getElementById('statusDot'), document.getElementById('statusDot2')].forEach(d => {
+    if (d) d.className = 'dot' + (entries.length > 0 ? ' online' : '');
+  });
 }
 
 // ─── MEDICATION MANAGEMENT ────────────────────────────
