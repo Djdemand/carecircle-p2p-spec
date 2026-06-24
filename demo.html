@@ -312,10 +312,20 @@ async function startHost() {
   const offerStr = JSON.stringify(offerData);
   document.getElementById('offerOut').value = offerStr;
   
-  // Generate QR code — strip SDP boilerplate to keep QR scannable
-  const pageUrl = window.location.href.split('#')[0].split('?')[0];
-  const encoded = btoa(JSON.stringify({ o: pc.localDescription, h: PEER_ID }));
+  // Strip SDP to essentials only — ICE candidates, fingerprint, ufrag/pwd
+  // Guest reconstructs the SDP from these pieces (much shorter for QR)
+  const sdp = pc.localDescription.sdp;
+  const ice = sdp.match(/a=candidate:.*/g) || [];
+  const fp = sdp.match(/a=fingerprint:.*/g)?.[0] || '';
+  const ufrag = sdp.match(/a=ice-ufrag:.*/g)?.[0] || '';
+  const pwd = sdp.match(/a=ice-pwd:.*/g)?.[0] || '';
+  
+  const compact = { i: ice, f: fp, u: ufrag, p: pwd, h: PEER_ID };
+  const encoded = btoa(JSON.stringify(compact));
   const joinUrl = pageUrl + '#j=' + encoded;
+  
+  // Also store full offer in sessionStorage for the guest to retrieve
+  sessionStorage.setItem('cc_offer_' + PEER_ID, JSON.stringify(pc.localDescription));
   generateQR(joinUrl);
   document.getElementById('qrUrl').textContent = joinUrl;
   document.getElementById('qrUrl').href = joinUrl;
@@ -451,7 +461,16 @@ const hash = window.location.hash;
 if (hash.startsWith('#j=')) {
   try {
     const data = JSON.parse(atob(hash.substring(3)));
-    const offerData = { type: 'carecircle-offer', offer: data.o, hostId: data.h, ts: Date.now() };
+    // Reconstruct SDP from compact pieces
+    const rn = String.fromCharCode(13,10);
+    const sdp = ['v=0','o=- 0 2 IN IP4 127.0.0.1','s=-','t=0 0',
+      'a=group:BUNDLE 0','a=extmap-allow-mixed','a=msid-semantic: WMS',
+      'm=application 9 UDP/DTLS/SCTP webrtc-datachannel','c=IN IP4 0.0.0.0',
+      ...data.i, data.f, data.u, data.p,
+      'a=ice-options:trickle','a=setup:actpass','a=mid:0',
+      'a=sctp-port:5000','a=max-message-size:262144',''].join(rn);
+    const offer = { type: 'offer', sdp };
+    const offerData = { type: 'carecircle-offer', offer, hostId: data.h, ts: Date.now() };
     log('Scanned QR — auto-joining circle...', 'action');
     document.querySelector('#hostPanel h3').textContent = '👤 GUEST';
     connectAsGuest(offerData);
