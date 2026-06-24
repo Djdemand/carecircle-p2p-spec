@@ -371,9 +371,21 @@ async function connectAsGuest(offerData) {
     ts: Date.now()
   };
   
-  document.getElementById('pasteOffer').value = JSON.stringify(answerData);
-  log('Send this answer back to the Host (copy & paste in their tab)', 'action');
-  document.getElementById('statusText').textContent = 'Copy the answer above → paste into Host tab';
+  // Show answer as QR code for host to scan back
+  const answerStr = JSON.stringify(answerData);
+  const pageUrl = window.location.href.split('#')[0].split('?')[0];
+  const encoded = btoa(answerStr);
+  const answerUrl = pageUrl + '#answer=' + encoded;
+  
+  document.getElementById('qrUrl').textContent = '📱 Host: scan this QR to complete connection';
+  document.getElementById('qrUrl').href = answerUrl;
+  generateQR(answerUrl);
+  
+  log('📱 Host: scan this QR to complete the connection', 'action');
+  document.getElementById('statusText').textContent = 'Waiting for host to scan your QR...';
+  document.getElementById('host-qr').style.display = 'block';
+  document.getElementById('host-peer').style.display = 'none';
+  document.querySelector('#hostTabs .tab:first-child').click();
 }
 
 function copyOffer() {
@@ -410,18 +422,35 @@ log('CareCircle P2P Demo started', 'action');
 log(`Your Peer ID: ${PEER_ID}`, 'action');
 
 // Auto-join: if URL has #join=<base64 offer>, connect as guest
+// Auto-answer: if URL has #answer=<base64 answer>, process host-side
 const hash = window.location.hash;
 if (hash.startsWith('#join=')) {
   try {
     const offerStr = atob(hash.substring(6));
     const offerData = JSON.parse(offerStr);
     log('Scanned QR — auto-joining circle...', 'action');
-    document.querySelector('#hostPanel h3').textContent = '👤 GUEST — Connected';
+    document.querySelector('#hostPanel h3').textContent = '👤 GUEST';
     connectAsGuest(offerData);
   } catch(e) {
     log('Invalid QR link: ' + e.message, 'error');
     startHost();
   }
+} else if (hash.startsWith('#answer=')) {
+  // Host scanned guest's QR — complete the handshake
+  startHost();
+  setTimeout(async () => {
+    try {
+      const answerStr = atob(hash.substring(8));
+      const answerData = JSON.parse(answerStr);
+      if (answerData.type === 'carecircle-answer' && window._pendingPC) {
+        await window._pendingPC.setRemoteDescription(new RTCSessionDescription(answerData.answer));
+        document.getElementById('statusText').textContent = 'Peer connected! Medications synced.';
+        log('✅ Handshake complete — peer joined the circle!', 'action');
+      }
+    } catch(e) {
+      log('Invalid answer data: ' + e.message, 'error');
+    }
+  }, 500);
 } else {
   startHost();
 }
