@@ -312,10 +312,10 @@ async function startHost() {
   const offerStr = JSON.stringify(offerData);
   document.getElementById('offerOut').value = offerStr;
   
-  // Generate QR code as a URL the guest can open
+  // Generate QR code — strip SDP boilerplate to keep QR scannable
   const pageUrl = window.location.href.split('#')[0].split('?')[0];
-  const encoded = btoa(offerStr);
-  const joinUrl = pageUrl + '#join=' + encoded;
+  const encoded = btoa(JSON.stringify({ o: pc.localDescription, h: PEER_ID }));
+  const joinUrl = pageUrl + '#j=' + encoded;
   generateQR(joinUrl);
   document.getElementById('qrUrl').textContent = joinUrl;
   document.getElementById('qrUrl').href = joinUrl;
@@ -425,7 +425,7 @@ function generateQR(data) {
   const container = document.getElementById('qrcode');
   container.innerHTML = '';
   try {
-    new QRCode(container, { text: data, width: 220, height: 220, colorDark: '#f8fafc', colorLight: '#1e293b', correctLevel: QRCode.CorrectLevel.L });
+    new QRCode(container, { text: data, width: 280, height: 280, colorDark: '#f8fafc', colorLight: '#1e293b', correctLevel: QRCode.CorrectLevel.L });
   } catch(e) {
     container.innerHTML = '<div style="padding:20px;color:var(--red)">QR: ' + e.message + '</div>';
   }
@@ -445,13 +445,13 @@ document.getElementById('hostTabs').addEventListener('click', (e) => {
 log('CareCircle P2P Demo started', 'action');
 log(`Your Peer ID: ${PEER_ID}`, 'action');
 
-// Auto-join: if URL has #join=<base64 offer>, connect as guest
+// Auto-join: if URL has #j=<base64 compact offer>, connect as guest
 // Auto-answer: if URL has #answer=<base64 answer>, process host-side
 const hash = window.location.hash;
-if (hash.startsWith('#join=')) {
+if (hash.startsWith('#j=')) {
   try {
-    const offerStr = atob(hash.substring(6));
-    const offerData = JSON.parse(offerStr);
+    const data = JSON.parse(atob(hash.substring(3)));
+    const offerData = { type: 'carecircle-offer', offer: data.o, hostId: data.h, ts: Date.now() };
     log('Scanned QR — auto-joining circle...', 'action');
     document.querySelector('#hostPanel h3').textContent = '👤 GUEST';
     connectAsGuest(offerData);
