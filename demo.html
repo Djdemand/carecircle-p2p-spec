@@ -371,21 +371,34 @@ async function connectAsGuest(offerData) {
     ts: Date.now()
   };
   
-  // Show answer as QR code for host to scan back
+  // Show a clickable "Complete Connection" link for the host
   const answerStr = JSON.stringify(answerData);
-  const pageUrl = window.location.href.split('#')[0].split('?')[0];
   const encoded = btoa(answerStr);
-  const answerUrl = pageUrl + '#answer=' + encoded;
+  const answerUrl = 'https://djdemand.github.io/carecircle-p2p-spec/#answer=' + encoded;
   
-  document.getElementById('qrUrl').textContent = '📱 Host: scan this QR to complete connection';
+  // Show link + auto-copy
+  document.getElementById('qrUrl').textContent = answerUrl;
   document.getElementById('qrUrl').href = answerUrl;
-  generateQR(answerUrl);
+  document.getElementById('qrUrl').style.display = 'block';
+  document.getElementById('qrUrl').style.fontSize = '12px';
   
-  log('📱 Host: scan this QR to complete the connection', 'action');
-  document.getElementById('statusText').textContent = 'Waiting for host to scan your QR...';
-  document.getElementById('host-qr').style.display = 'block';
-  document.getElementById('host-peer').style.display = 'none';
-  document.querySelector('#hostTabs .tab:first-child').click();
+  // Clear QR area and show link UI
+  const qrContainer = document.getElementById('qrcode');
+  qrContainer.innerHTML = `
+    <div style="padding:20px;text-align:center">
+      <div style="background:var(--green);width:48px;height:48px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:12px">✓</div>
+      <div style="font-size:14px;font-weight:600;color:var(--green);margin-bottom:8px">Connected!</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Send this link to the Host to complete pairing</div>
+      <button class="btn btn-accent" onclick="copyAnswerLink()" style="width:100%;margin-bottom:8px">📋 Copy Connection Link</button>
+      <div class="hint">Paste the link into a text, email, or send it to the host</div>
+      <div style="margin-top:12px;padding:8px;background:#0f172a;border-radius:4px;word-break:break-all;font-size:10px;font-family:monospace;color:var(--accent)" id="answerLinkDisplay">${answerUrl}</div>
+    </div>
+  `;
+  
+  // Auto-copy to clipboard
+  try { navigator.clipboard.writeText(answerUrl); log('📋 Connection link copied to clipboard! Send it to the host.', 'action'); } catch(e) {}
+  
+  document.getElementById('statusText').textContent = 'Send the link to the host to complete';
 }
 
 function copyOffer() {
@@ -393,6 +406,14 @@ function copyOffer() {
   if (offer) {
     navigator.clipboard.writeText(offer);
     log('Offer copied to clipboard', 'action');
+  }
+}
+
+function copyAnswerLink() {
+  const link = document.getElementById('qrUrl').href;
+  if (link) {
+    navigator.clipboard.writeText(link);
+    log('📋 Link copied! Send it to the host.', 'action');
   }
 }
 
